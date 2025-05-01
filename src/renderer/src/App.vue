@@ -1,23 +1,33 @@
 <script setup>
 import Versions from './components/Versions.vue'
+import { ref, computed, onMounted } from 'vue'
 
-const ipcHandle = () => window.electron.ipcRenderer.send('ping')
+const ceciLogs = ref([])
+
+const ceciLogContect = computed(() => {
+  return ceciLogs.value.map((line) => line.data).join('\n')
+})
+
+const ceciLogContainer = ref(null)
+
+onMounted(() => {
+  window.electron.ipcRenderer.on('ceciOut', (event, line) => {
+    ceciLogs.value.push(line)
+  })
+})
+
+const startHandle = () => window.electron.ipcRenderer.send('startCeci')
+const stopHandle = () => window.electron.ipcRenderer.send('stopCeci')
 </script>
 
 <template>
-  <img alt="logo" class="logo" src="./assets/electron.svg" />
-  <div class="creator">Powered by electron-vite</div>
-  <div class="text">
-    Build an Electron app with
-    <span class="vue">Vue</span>
-  </div>
-  <p class="tip">Please try pressing <code>F12</code> to open the devTool</p>
+  <pre ref="ceciLogContainer">{{ ceciLogContect }}</pre>
   <div class="actions">
     <div class="action">
-      <a href="https://electron-vite.org/" target="_blank" rel="noreferrer">Documentation</a>
+      <a target="_blank" rel="noreferrer" @click="startHandle">Start Ceci</a>
     </div>
     <div class="action">
-      <a target="_blank" rel="noreferrer" @click="ipcHandle">Send IPC</a>
+      <a target="_blank" rel="noreferrer" @click="stopHandle">Stop Ceci</a>
     </div>
   </div>
   <Versions />

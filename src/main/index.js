@@ -2,6 +2,7 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { spawn } from 'child_process'
 
 function createWindow() {
   // Create the browser window.
@@ -33,7 +34,24 @@ function createWindow() {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+
+  return mainWindow
 }
+
+const getResourcePath = () => {
+  let resourcePath
+
+  if (process.env.NODE_ENV === 'development') {
+    resourcePath = join(__dirname, '..', '..', 'resources')
+  } else {
+    resourcePath = process.resourcesPath
+  }
+
+  return resourcePath
+}
+
+let ceciChild = null
+let window = null
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
@@ -49,15 +67,67 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // IPC test
-  ipcMain.on('ping', () => console.log('pong'))
+  window = createWindow()
+  window.on('closed', () => {
+    if (ceciChild && !ceciChild.killed) {
+      ceciChild.kill()
+      ceciChild.removeAllListeners()
+      ceciChild = null
+    }
+  })
 
-  createWindow()
+  // IPC define
+  const ceciOut = (data) => {
+    if (window && !window.isDestroyed()) {
+      window.webContents.send('ceciOut', data)
+    }
+  }
 
-  app.on('activate', function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  ipcMain.on('startCeci', () => {
+    if (ceciChild) {
+      window.webContents.send('ceciOut', { type: 'info', data: 'already running' })
+      return
+    }
+    var executable = join(getResourcePath(), process.platform)
+    var conf = join(getResourcePath(), 'ceci.yaml')
+
+    if (process.platform == 'win32') {
+      executable = join(executable, 'openceci.exe')
+    } else if (process.platform == 'darwin') {
+      executable = join(executable, 'openceci')
+    } else {
+      console.error(`Error opening ceci: not support ${process.platform}`)
+      return
+    }
+
+    ceciChild = spawn(executable, ['-conf', conf], { shell: true })
+
+    ceciChild.on('close', (code) => {
+      console.log(`exit: ${code}`)
+      ceciOut({ type: 'exit', data: code })
+    })
+
+    ceciChild.stdout.on('data', (data) => {
+      var line = data.toString()
+      console.log(line)
+      ceciOut({ type: 'stdout', data: line })
+    })
+
+    ceciChild.stderr.on('data', (data) => {
+      var line = data.toString()
+      console.log(line)
+      ceciOut({ type: 'stderr', data: line })
+    })
+  })
+
+  ipcMain.on('stopCeci', () => {
+    if (ceciChild && !ceciChild.killed) {
+      ceciChild.kill()
+      ceciOut({ type: 'info', data: 'exit' })
+      ceciChild = null
+    } else {
+      ceciOut({ type: 'info', data: 'no running' })
+    }
   })
 })
 
@@ -65,9 +135,7 @@ app.whenReady().then(() => {
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
+  app.quit()
 })
 
 // In this file you can include the rest of your app's specific main process
